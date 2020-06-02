@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:local_auth_device_credentials/auth_strings.dart';
-import 'package:local_auth_device_credentials/error_codes.dart';
+import 'package:flutter/services.dart';
 import 'package:local_auth_device_credentials/local_auth.dart';
 import 'homepage.dart';
 import 'phno.dart';
@@ -36,99 +35,138 @@ class MyApps extends StatefulWidget {
   _MyAppsState createState() => _MyAppsState();  
 }  
   
-class _MyAppsState extends State<MyApps> {  
-  // 2. created object of localauthentication class  
-  final LocalAuthentication _localAuthentication = LocalAuthentication();  
-  // 3. variable for track whether your device support local authentication means  
-  //    have fingerprint or face recognization sensor or not  
-  bool _isBiometricsAvailable  = false;
-  // 4. we will set state whether user authorized or not  
-  String _authorizedOrNot = "Not Authorized";  
-  // 5. list of avalable biometric authentication supports of your device will be saved in this array  
-  List<BiometricType> _availableBuimetricType = List<BiometricType>();  
-  
-  Future<void> _getBiometricsSupport() async {  
-    // 6. this method checks whether your device has biometric support or not  
-    bool isBiometricsAvailable = false;
+class _MyAppsState extends State<MyApps> {
+  final LocalAuthentication auth = LocalAuthentication();
+  bool _canCheckBiometrics;
+  List<BiometricType> _availableBiometrics;
+  String _authorized = 'Not Authorized';
+  bool _isAuthenticating = false;
+  bool _isSupported;
+
+  @override
+  void initState() {
+    super.initState();
+    auth.isDeviceSupported().then((isSupported) =>
+        setState(() => _isSupported = isSupported));
+  }
+
+  Future<void> _checkBiometrics() async {
+    bool canCheckBiometrics;
     try {
-      isBiometricsAvailable  = await _localAuthentication.canCheckBiometrics;
-    } catch (e) {  
-      print(e);  
-    }  
-    if (!mounted) return;  
+      canCheckBiometrics = await auth.canCheckBiometrics;
+    } on PlatformException catch (e) {
+      print(e);
+    }
+    if (!mounted) return;
+
     setState(() {
-      _isBiometricsAvailable  = isBiometricsAvailable ;
-    });  
-  }  
-  
-  Future<void> _getAvailableSupport() async {  
-    // 7. this method fetches all the available biometric supports of the device  
-    List<BiometricType> availableBuimetricType = List<BiometricType>();  
-    try {  
-      availableBuimetricType =  
-          await _localAuthentication.getAvailableBiometrics();  
-    } catch (e) {  
-      print(e);  
-    }  
-    if (!mounted) return;  
-    setState(() {  
-      _availableBuimetricType = availableBuimetricType;  
-    });  
-  }  
-  
-  Future<void> _authenticateMe() async {  
-    // 8. this method opens a dialog for fingerprint authentication.  
-    //    we do not need to create a dialog nut it popsup from device natively.  
-    bool authenticated = false;  
-    try {  
-      authenticated = await _localAuthentication.authenticate(
-        localizedReason: "Authenticate for Testing", // message for dialog  
-        useErrorDialogs: true,// show error in dialog  
-        stickyAuth: true,// native process  
-      );  
-    } catch (e) {  
-      print(e);  
-    }  
-    if (!mounted) return;  
-    setState(() {  
-      authenticated ? Navigator.of(context).pushReplacementNamed('/firstpage') : Navigator.of(context).pushReplacementNamed('/loginpage');  
-    });  
-  }  
-  
-  @override  
-  void initState() {  
-    _getBiometricsSupport();  
-    _getAvailableSupport();  
-    super.initState();  
-  }  
-  
-  @override  
-  Widget build(BuildContext context) {  
-    return Scaffold(  
-      appBar: AppBar(  
-        title: Text(widget.title),  
-      ),  
-      body: Center(  
-        child: Column(  
-          mainAxisAlignment: MainAxisAlignment.center,  
-          children: <Widget>[  
-           // Text("Has FingerPrint Support : $_hasFingerPrintSupport"),  
-           // Text(  
-              //  "List of Biometrics Support: ${_availableBuimetricType.toString()}"),  
-          //  Text("Authorized : $_authorizedOrNot"),  
-            RaisedButton(  
-              child: Text("Verify it's you"), 
+      _canCheckBiometrics = canCheckBiometrics;
+    });
+  }
+
+  Future<void> _getAvailableBiometrics() async {
+    List<BiometricType> availableBiometrics;
+    try {
+      availableBiometrics = await auth.getAvailableBiometrics();
+    } on PlatformException catch (e) {
+      print(e);
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _availableBiometrics = availableBiometrics;
+    });
+  }
+
+  Future<void> _authenticate() async {
+    bool authenticated = false;
+    try {
+      setState(() {
+        _isAuthenticating = true;
+        _authorized = 'Authenticating';
+      });
+      authenticated = await auth.authenticate(
+        localizedReason: 'Let OS determine authentication method',
+        useErrorDialogs: true,
+        stickyAuth: true,
+      );
+
+      setState(() =>
+      _authorized = authenticated ? 'Authorized' : 'Not Authorized');
+      authenticated
+          ? Navigator.of(context).pushReplacementNamed('/firstpage')
+          : Navigator.of(context).pushReplacementNamed('/loginpage');
+    } on PlatformException catch (e) {
+      setState(() => _authorized = e.message);
+    } finally {
+      setState(() => _isAuthenticating = false);
+    }
+  }
+
+  Future<void> _authenticateWithBiometrics() async {
+    bool authenticated = false;
+    try {
+      setState(() {
+        _isAuthenticating = true;
+        _authorized = 'Authenticating';
+      });
+      authenticated = await auth.authenticateWithBiometrics(
+          localizedReason: 'Scan your fingerprint to authenticate',
+          useErrorDialogs: true,
+          stickyAuth: true);
+      setState(() {
+        _isAuthenticating = false;
+        _authorized = authenticated ? 'Authorized' : 'Not Authorized';
+        authenticated
+            ? Navigator.of(context).pushReplacementNamed('/firstpage')
+            : Navigator.of(context).pushReplacementNamed('/loginpage');
+      });
+    } on PlatformException catch (e) {
+      setState(() => _authorized = e.message);
+    } finally {
+      setState(() => _isAuthenticating = false);
+    }
+  }
+
+  void _cancelAuthentication() async {
+    await auth.stopAuthentication();
+    setState(() => _isAuthenticating = false);
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            // Text("Has FingerPrint Support : $_hasFingerPrintSupport"),
+            // Text(
+            //  "List of Biometrics Support: ${_availableBuimetricType.toString()}"),
+            //  Text("Authorized : $_authorizedOrNot"),
+            RaisedButton(
+              child: Text("Verify it's you"),
               textColor: Colors.white,
               elevation: 10,
               shape: new RoundedRectangleBorder(
-              borderRadius: new BorderRadius.circular(30.0),
-             ),
+                borderRadius: new BorderRadius.circular(30.0),
+              ),
               color: Colors.red,
-              onPressed: _authenticateMe,  
-            ),  
-          ],  
-        ),  
-      ),  
-    );  
-  }  
-}  
+              onPressed: () async {
+                if (_isSupported) {
+                  _authenticate();
+                }
+                else
+                  Text("This device is not supported");
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
